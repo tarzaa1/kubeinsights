@@ -1,0 +1,11 @@
+{
+    "network": {
+        "accountId": "0.0.3",
+        "address": "10.18.1.35:50211"
+    },
+    "operator": {
+        "accountId": "0.0.1002",
+        "privateKey": "302e020100300506032b657004220420c7dc60c2779e9496c69b236769f9b9191dd06f377a6d1a8073f4152ebcdad221"
+    },
+    "mirrorNetwork": "10.18.1.35:5600"
+}
