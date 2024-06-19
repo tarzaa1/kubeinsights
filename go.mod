@@ -6,6 +6,7 @@ toolchain go1.21.5
 
 require (
 	github.com/confluentinc/confluent-kafka-go v1.9.2
+	github.com/google/uuid v1.6.0
 	github.com/hashgraph/hedera-sdk-go/v2 v2.33.0
 	k8s.io/api v0.29.1
 	k8s.io/apimachinery v0.29.1
@@ -33,7 +34,6 @@ require (
 	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/google/gnostic-models v0.6.8 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashgraph/hedera-protobufs-go v0.2.1-0.20230720072335-ed5726877e99 // indirect
 	github.com/holiman/uint256 v1.2.4 // indirect
 	github.com/imdario/mergo v0.3.6 // indirect
