@@ -2,22 +2,25 @@ package main
 
 import (
 	"fmt"
-	"kubeinsights/hedera"
+	"kubeinsights/pkg/hedera"
+	"log"
+	"os"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	var config hedera.Config
-	config, err := hedera.GetConfig("default_config.json")
+
+	err := godotenv.Load()
 	if err != nil {
-		fmt.Println(err)
-		return
+		log.Fatalf("Error loading .env file")
 	}
 
-	networkAddress := config.Network.Address
-	networkAccountId := config.Network.AccountId
-	mirrorAddress := config.MirrorNode
-	operatorAccountId := config.Operator.AccountId
-	operatorPrivateKey := config.Operator.PrivateKey
+	networkAddress := os.Getenv("HEDERA_NODE_URL")
+	networkAccountId := os.Getenv("NETWORK_ACCOUNT_ID")
+	mirrorAddress := os.Getenv("HEDERA_MIRROR_NODE_URL")
+	operatorAccountId := os.Getenv("OPERATOR_ACCOUNT_ID")
+	operatorPrivateKey := os.Getenv("OPERATOR_PRIVATE_KEY")
 
 	client, err := hedera.CreateClient(networkAddress, networkAccountId, operatorAccountId, operatorPrivateKey, mirrorAddress)
 
@@ -31,8 +34,12 @@ func main() {
 		return
 	}
 
+	config := hedera.Config{}
+	config.Network.Address = networkAddress
+	config.Network.AccountId = networkAccountId
 	config.Operator.AccountId = newAccountId.String()
 	config.Operator.PrivateKey = newPrivateKey.String()
+	config.MirrorNode = mirrorAddress
 
 	hedera.WriteConfig(config, "config.json")
 

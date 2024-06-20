@@ -4,29 +4,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
-	sub "kubeinsights/hedera"
+	sub "kubeinsights/pkg/hedera"
 
 	"github.com/hashgraph/hedera-sdk-go/v2"
 )
 
 func main() {
 
-	//Create your local client
-	// node := make(map[string]hedera.AccountID, 1)
-	// node["10.18.1.35:50211"] = hedera.AccountID{Account: 3}
-
-	// mirrorNode := []string{"10.18.1.35:5600"}
-
-	// client := hedera.ClientForNetwork(node)
-	// client.SetMirrorNetwork(mirrorNode)
-
-	// accountId, err := hedera.AccountIDFromString("0.0.1002")
-	// privateKey, err := hedera.PrivateKeyFromString("302e020100300506032b6570042204206dc33599b4a18682e0a3c058d2dd4de41888da8474ceae94c7983bfef1ea2661")
-	// client.SetOperator(accountId, privateKey)
-
 	client, err := sub.ClientFromFile("sub_config.json")
+
+	if err != nil {
+		fmt.Printf("Failed to create hedera client: %s\n", err)
+		os.Exit(1)
+	}
 
 	// Get the topic ID from the transaction receipt
 	topicID, err := hedera.TopicIDFromString("0.0.1003")
@@ -43,18 +36,12 @@ func main() {
 	_, err = hedera.NewTopicMessageQuery().
 		SetTopicID(topicID).
 		Subscribe(client.Client, func(message hedera.TopicMessage) {
-			t2 := time.Now()
 			var record map[string]interface{}
 			err := json.Unmarshal(message.Contents, &record)
 			if err != nil {
 				log.Fatal(err)
 			}
-			timestamp := record["timestamp"].(string)
-			t1, err := time.Parse(time.RFC3339Nano, timestamp)
-			latency := t2.Sub(t1)
-			// consenus_latency := message.ConsensusTimestamp.Sub(t1)
-			// string(message.Contents)
-			fmt.Println(message.ConsensusTimestamp.String(), "received topic message with latency ", latency.Milliseconds(), "\r")
+			fmt.Println(message.ConsensusTimestamp.String())
 		})
 
 	if err != nil {

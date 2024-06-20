@@ -9,10 +9,10 @@ import (
 	"sync"
 	"time"
 
-	publisher "kubeinsights/hedera"
+	publisher "kubeinsights/pkg/hedera"
 
-	// publisher "kubeinsights/kafka"
-	"kubeinsights/kubestate"
+	// publisher "kubeinsights/pkg/kafka"
+	"kubeinsights/pkg/kubestate"
 
 	"github.com/google/uuid"
 	v1 "k8s.io/api/core/v1"
@@ -130,9 +130,9 @@ func writeDurationsToCSV(tuples []EventLatency, filename string) error {
 
 func main() {
 
-	// client := publisher.Producer("10.18.1.35:29092,")
-
-	// topicID := "myTopic"
+	// topicID := os.Getenv("KAFKA_TOPIC")
+	// kafka_url := os.Getenv("KAFKA_BROKER_URL")
+	// client := publisher.Producer(kafka_url)
 
 	client, err := publisher.ClientFromFile("config.json")
 

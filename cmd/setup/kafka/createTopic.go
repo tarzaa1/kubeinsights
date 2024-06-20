@@ -4,14 +4,20 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/confluentinc/confluent-kafka-go/kafka"
+	"github.com/joho/godotenv"
 )
 
 func main() {
-	address := "10.18.1.35:29092"
-	topicID := "myTopic"
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("Error loading .env file")
+	}
+	address := os.Getenv("KAFKA_BROKER_URL")
+	topicID := os.Getenv("KAFKA_TOPIC")
 
 	adminClient, err := kafka.NewAdminClient(&kafka.ConfigMap{"bootstrap.servers": address})
 	if err != nil {
