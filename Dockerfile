@@ -2,10 +2,8 @@ FROM golang:1.21.5
 
 WORKDIR /app
 
-COPY go.mod go.sum ./
+COPY . .
 
 RUN go mod download
-
-COPY . .
 
 CMD ["/bin/bash"]
