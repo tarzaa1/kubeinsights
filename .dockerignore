@@ -29,13 +29,12 @@ vendor/
 .DS_Store
 Thumbs.db
 
-# Ignore Go workspace files
-*.mod
-*.sum
-
 # Ignore Git files
 .git
 .gitignore
 
 # Ignore compiled binary
 main
+
+README.md
+.dockerignore

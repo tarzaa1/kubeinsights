@@ -5,5 +5,3 @@ WORKDIR /app
 COPY . .
 
 RUN go mod download
-
-CMD ["/bin/bash"]
