@@ -5,16 +5,18 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"sync"
 	"time"
 
-	publisher "kubeinsights/pkg/hedera"
+	// publisher "kubeinsights/pkg/hedera"
 
-	// publisher "kubeinsights/pkg/kafka"
+	publisher "kubeinsights/pkg/kafka"
 	"kubeinsights/pkg/kubestate"
 
 	"github.com/google/uuid"
+	"github.com/joho/godotenv"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
@@ -130,13 +132,18 @@ func writeDurationsToCSV(tuples []EventLatency, filename string) error {
 
 func main() {
 
-	// topicID := os.Getenv("KAFKA_TOPIC")
-	// kafka_url := os.Getenv("KAFKA_BROKER_URL")
-	// client := publisher.Producer(kafka_url)
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("Error loading .env file")
+	}
 
-	client, err := publisher.ClientFromFile("config.json")
+	topicID := os.Getenv("KAFKA_TOPIC")
+	kafka_url := os.Getenv("KAFKA_BROKER_URL")
+	client := publisher.Producer(kafka_url)
 
-	topicID := "0.0.1003"
+	// client, err := publisher.ClientFromFile("config.json")
+
+	// topicID := "0.0.1003"
 
 	fmt.Printf("Publishing to topicID: %v\n", topicID)
 
