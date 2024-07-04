@@ -176,7 +176,7 @@ func NewTopic(client Client) (hedera.TopicID, error) {
 	return topicID, nil
 }
 
-func SubmitMessage(client Client, topicID string, message []byte, metadata string) {
+func SubmitMessage(client Client, topicID string, message []byte) string {
 
 	topic := TopicID(topicID)
 
@@ -187,18 +187,18 @@ func SubmitMessage(client Client, topicID string, message []byte, metadata strin
 		Execute(client.Client)
 	if err != nil {
 		println(err.Error(), ": error submitting to topic")
-		return
+		return ""
 	}
 
 	receipt, err := submitMessage.GetReceipt(client.Client)
 
 	if err != nil {
 		println(err.Error())
-		return
+		return ""
 	}
 
 	transactionStatus := receipt.Status
-	fmt.Println(metadata + " " + transactionStatus.String())
+	return transactionStatus.String()
 }
 
 func TopicID(topic string) hedera.TopicID {
