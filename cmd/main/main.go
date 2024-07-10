@@ -115,6 +115,10 @@ func main() {
 	//get cluster info, create an event to add cluster, print this event to console and add it to the queue to be sent.
 	//think of a way to link inidividual nodes to the cluster node
 
+	event := NewEvent("Add", "Cluster", nil)
+	fmt.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
+	queue <- event
+
 	nodes, err := k8sclient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
