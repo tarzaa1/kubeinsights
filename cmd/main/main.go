@@ -19,6 +19,8 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/rest"
+	"k8s.io/metrics/pkg/apis/metrics"
 )
 
 type Event struct {
@@ -68,18 +70,33 @@ func Send(client publisher.Client, topicID string, event Event) {
 	fmt.Printf("%s %s", event.Id, send_status)
 }
 
-func worker(client publisher.Client, topicID string, queue chan Event, wg *sync.WaitGroup) {
+func worker(client publisher.Client, topicID string, events <-chan Event, wg *sync.WaitGroup) {
 	defer wg.Done()
-	for {
-		event := <-queue
+	for event := range events {
+		Send(client, topicID, event)
+	}
+}
 
-		if event.Kind == "Done" {
-			Send(client, topicID, event)
-			fmt.Println("Received 'Done' signal, worker stopping")
-			return
+func metricsWorker(k8sRESTClient rest.Interface, events chan<- Event) {
+	nodeMetricsList := metrics.NodeMetricsList{}
+	for {
+		data, err := k8sRESTClient.Get().AbsPath("apis/metrics.k8s.io/v1beta1/nodes").DoRaw(context.TODO())
+		if err != nil {
+			panic(err.Error())
+		}
+		// fmt.Print(string(data))
+		err = json.Unmarshal(data, &nodeMetricsList)
+		if err != nil {
+			panic(err.Error())
 		}
 
-		Send(client, topicID, event)
+		for _, nodeMetrics := range nodeMetricsList.Items {
+			event := NewEvent("Update", "Metrics", ResourceToJSON(nodeMetrics))
+			fmt.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(nodeMetrics.Kind))
+			events <- event
+		}
+
+		time.Sleep(15 * time.Second)
 	}
 }
 
@@ -102,24 +119,22 @@ func main() {
 
 	k8sclient := kubestate.K8sClientSet()
 
+	coreV1Client := k8sclient.CoreV1()
+	appsV1Client := k8sclient.AppsV1()
+	restClient := k8sclient.RESTClient()
+
 	namespace := "default"
 
 	queue := make(chan Event, 1000)
-
 	var wg sync.WaitGroup
-
 	wg.Add(1)
-
 	go worker(client, topicID, queue, &wg)
-
-	//get cluster info, create an event to add cluster, print this event to console and add it to the queue to be sent.
-	//think of a way to link inidividual nodes to the cluster node
 
 	event := NewEvent("Add", "Cluster", nil)
 	fmt.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
 	queue <- event
 
-	nodes, err := k8sclient.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	nodes, err := coreV1Client.Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
@@ -132,7 +147,7 @@ func main() {
 		queue <- event
 	}
 
-	configmaps, err := k8sclient.CoreV1().ConfigMaps(namespace).List(context.TODO(), metav1.ListOptions{})
+	configmaps, err := coreV1Client.ConfigMaps(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
@@ -145,7 +160,7 @@ func main() {
 		queue <- event
 	}
 
-	deployments, err := k8sclient.AppsV1().Deployments(namespace).List(context.TODO(), metav1.ListOptions{})
+	deployments, err := appsV1Client.Deployments(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
@@ -158,7 +173,7 @@ func main() {
 		queue <- event
 	}
 
-	replicasets, err := k8sclient.AppsV1().ReplicaSets(namespace).List(context.TODO(), metav1.ListOptions{})
+	replicasets, err := appsV1Client.ReplicaSets(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
@@ -171,7 +186,7 @@ func main() {
 		queue <- event
 	}
 
-	pods, err := k8sclient.CoreV1().Pods(namespace).List(context.TODO(), metav1.ListOptions{})
+	pods, err := coreV1Client.Pods(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
@@ -184,7 +199,7 @@ func main() {
 		queue <- event
 	}
 
-	services, err := k8sclient.CoreV1().Services(namespace).List(context.TODO(), metav1.ListOptions{})
+	services, err := coreV1Client.Services(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
@@ -196,6 +211,8 @@ func main() {
 		// Send(client, topicID, event, metadata)
 		queue <- event
 	}
+
+	go metricsWorker(restClient, queue)
 
 	watcher, err := k8sclient.CoreV1().Events(namespace).Watch(context.TODO(), metav1.ListOptions{})
 	if err != nil {
@@ -231,6 +248,7 @@ eventLoop:
 						fmt.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
 						// Send(client, topicID, done, metadata)
 						queue <- event
+						fmt.Println("Received 'Done' signal, closing worker chan")
 						close(queue)
 						wg.Wait()
 						break eventLoop
