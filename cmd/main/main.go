@@ -65,34 +65,37 @@ func ResourceToJSON[T any](resource T) json.RawMessage {
 	return jsonBytes
 }
 
-func Send(client publisher.Client, topicID string, event Event) {
-	send_status := publisher.SubmitMessage(client, topicID, event.MarshalToJSON())
-	fmt.Printf("%s %s", event.Id, send_status)
+func Send(client publisher.Client, topicID string, event Event) string {
+	return publisher.SubmitMessage(client, topicID, event.MarshalToJSON())
 }
 
-func worker(client publisher.Client, topicID string, events <-chan Event, wg *sync.WaitGroup) {
+func worker(client publisher.Client, logger *log.Logger, topicID string, events <-chan Event, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for event := range events {
-		Send(client, topicID, event)
+		status := Send(client, topicID, event)
+		logger.Printf("%s %s", event.Id, status)
 	}
 }
 
-func metricsWorker(k8sRESTClient rest.Interface, events chan<- Event) {
+func metricsWorker(k8sRESTClient rest.Interface, loggers Loggers, events chan<- Event) {
 	nodeMetricsList := metrics.NodeMetricsList{}
 	for {
 		data, err := k8sRESTClient.Get().AbsPath("apis/metrics.k8s.io/v1beta1/nodes").DoRaw(context.TODO())
 		if err != nil {
-			panic(err.Error())
+			loggers.ErrorLogger.Println(err)
+			loggers.ErrorLogger.Println("Please setup metrics server... Trying again in 10 seconds")
+			time.Sleep(10 * time.Second)
+			continue
 		}
 		// fmt.Print(string(data))
 		err = json.Unmarshal(data, &nodeMetricsList)
 		if err != nil {
-			panic(err.Error())
+			fmt.Println(err)
 		}
 
 		for _, nodeMetrics := range nodeMetricsList.Items {
 			event := NewEvent("Update", "Metrics", ResourceToJSON(nodeMetrics))
-			fmt.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(nodeMetrics.Kind))
+			loggers.InfoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(nodeMetrics.Kind))
 			events <- event
 		}
 
@@ -100,7 +103,20 @@ func metricsWorker(k8sRESTClient rest.Interface, events chan<- Event) {
 	}
 }
 
+type Loggers struct {
+	InfoLogger  *log.Logger
+	ErrorLogger *log.Logger
+}
+
 func main() {
+
+	errorLogger := log.New(os.Stdout, "ERROR: ", log.Ldate|log.Ltime|log.Lshortfile)
+	infoLogger := log.New(os.Stdout, "INFO: ", log.Ldate|log.Ltime|log.Lshortfile)
+
+	loggers := Loggers{
+		InfoLogger:  infoLogger,
+		ErrorLogger: errorLogger,
+	}
 
 	err := godotenv.Load()
 	if err != nil {
@@ -115,7 +131,7 @@ func main() {
 
 	// topicID := "0.0.1003"
 
-	fmt.Printf("Publishing to topicID: %v\n", topicID)
+	infoLogger.Printf("Publishing to topicID: %v\n", topicID)
 
 	k8sclient := kubestate.K8sClientSet()
 
@@ -128,21 +144,21 @@ func main() {
 	queue := make(chan Event, 1000)
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go worker(client, topicID, queue, &wg)
+	go worker(client, infoLogger, topicID, queue, &wg)
 
 	event := NewEvent("Add", "Cluster", nil)
-	fmt.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
+	infoLogger.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
 	queue <- event
 
 	nodes, err := coreV1Client.Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
-	fmt.Printf("\nKubernetes API Server: There are %d nodes in the cluster\n", len(nodes.Items))
+	infoLogger.Printf("Kubernetes API Server: There are %d nodes in the cluster\n", len(nodes.Items))
 
 	for _, k8snode := range nodes.Items {
 		event := NewEvent("Add", "Node", ResourceToJSON(k8snode))
-		fmt.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(k8snode.Name))
+		infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(k8snode.Name))
 		// Send(client, topicID, event, metadata)
 		queue <- event
 	}
@@ -151,11 +167,11 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	fmt.Printf("\nKubernetes API Server: There are %d configmaps in the cluster\n", len(configmaps.Items))
+	infoLogger.Printf("Kubernetes API Server: There are %d configmaps in the cluster\n", len(configmaps.Items))
 
 	for _, configmap := range configmaps.Items {
 		event := NewEvent("Add", "ConfigMap", ResourceToJSON(configmap))
-		fmt.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(configmap.Name))
+		infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(configmap.Name))
 		// Send(client, topicID, event, metadata)
 		queue <- event
 	}
@@ -164,11 +180,11 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	fmt.Printf("\nKubernetes API Server: There are %d deployments in the cluster\n", len(deployments.Items))
+	infoLogger.Printf("Kubernetes API Server: There are %d deployments in the cluster\n", len(deployments.Items))
 
 	for _, deployment := range deployments.Items {
 		event := NewEvent("Add", "Deployment", ResourceToJSON(deployment))
-		fmt.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(deployment.Name))
+		infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(deployment.Name))
 		// Send(client, topicID, event, metadata)
 		queue <- event
 	}
@@ -177,11 +193,11 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	fmt.Printf("\nKubernetes API Server: There are %d replicasets in the cluster\n", len(replicasets.Items))
+	infoLogger.Printf("Kubernetes API Server: There are %d replicasets in the cluster\n", len(replicasets.Items))
 
 	for _, replicaset := range replicasets.Items {
 		event := NewEvent("Add", "ReplicaSet", ResourceToJSON(replicaset))
-		fmt.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(replicaset.Name))
+		infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(replicaset.Name))
 		// Send(client, topicID, event, metadata)
 		queue <- event
 	}
@@ -190,11 +206,11 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	fmt.Printf("\nKubernetes API Server: There are %d pods in the cluster\n", len(pods.Items))
+	infoLogger.Printf("Kubernetes API Server: There are %d pods in the cluster\n", len(pods.Items))
 
 	for _, pod := range pods.Items {
 		event := NewEvent("Add", "Pod", ResourceToJSON(pod))
-		fmt.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(pod.Name))
+		infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(pod.Name))
 		// Send(client, topicID, event, metadata)
 		queue <- event
 	}
@@ -203,16 +219,16 @@ func main() {
 	if err != nil {
 		panic(err.Error())
 	}
-	fmt.Printf("\nKubernetes API Server: There are %d services in the cluster\n", len(services.Items))
+	infoLogger.Printf("Kubernetes API Server: There are %d services in the cluster\n", len(services.Items))
 
 	for _, service := range services.Items {
 		event := NewEvent("Add", "Service", ResourceToJSON(service))
-		fmt.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(service.Name))
+		infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(service.Name))
 		// Send(client, topicID, event, metadata)
 		queue <- event
 	}
 
-	go metricsWorker(restClient, queue)
+	go metricsWorker(restClient, loggers, queue)
 
 	watcher, err := k8sclient.CoreV1().Events(namespace).Watch(context.TODO(), metav1.ListOptions{})
 	if err != nil {
@@ -234,18 +250,18 @@ eventLoop:
 			if item.InvolvedObject.Kind == "Pod" {
 				switch item.Reason {
 				case "Killing":
-					fmt.Printf("\nKubernetes API Server: Deleted Pod %s\n", item.InvolvedObject.Name)
+					infoLogger.Printf("\nKubernetes API Server: Deleted Pod %s\n", item.InvolvedObject.Name)
 					event := NewEvent("Delete", "Pod", ResourceToJSON(item.InvolvedObject.Name))
-					fmt.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(item.InvolvedObject.Name))
+					infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(item.InvolvedObject.Name))
 					// Send(client, topicID, event, metadata)
 					queue <- event
 					// println(string(ToJSON(event)))
 				case "Started":
 					time.Sleep(3 * time.Second)
-					fmt.Printf("\nKubernetes API Server: Started Pod %s\n", item.InvolvedObject.Name)
+					infoLogger.Printf("\nKubernetes API Server: Started Pod %s\n", item.InvolvedObject.Name)
 					if item.InvolvedObject.Name == "done" {
 						event := NewEvent("Add", "Done", ResourceToJSON(""))
-						fmt.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
+						infoLogger.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
 						// Send(client, topicID, done, metadata)
 						queue <- event
 						fmt.Println("Received 'Done' signal, closing worker chan")
@@ -285,7 +301,7 @@ eventLoop:
 									Data:    image,
 								}
 								event := NewEvent("Add", "Image", ResourceToJSON(newImage))
-								fmt.Printf("%s Sending Event: %s %s %s on K8sNode %s\n", event.Id, event.Action, event.Kind, string(image.Names[len(image.Names)-1]), string(pod.Spec.NodeName))
+								infoLogger.Printf("%s Sending Event: %s %s %s on K8sNode %s\n", event.Id, event.Action, event.Kind, string(image.Names[len(image.Names)-1]), string(pod.Spec.NodeName))
 								// Send(client, topicID, event, metadata)
 								queue <- event
 								// println(string(ToJSON(event)))
@@ -294,32 +310,32 @@ eventLoop:
 					}
 
 					event := NewEvent("Add", "Pod", ResourceToJSON(*pod))
-					fmt.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(item.InvolvedObject.Name))
+					infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(item.InvolvedObject.Name))
 					// Send(client, topicID, event, metadata)
 					queue <- event
 					// println(string(ToJSON(event)))
 
-					// fmt.Printf(" name: %s, imageID %s", pod.Spec.NodeName, pod.Status.ContainerStatuses[0].ImageID)
+					// infoLogger.Printf(" name: %s, imageID %s", pod.Spec.NodeName, pod.Status.ContainerStatuses[0].ImageID)
 				}
 			}
 
 			if item.InvolvedObject.Kind == "Node" {
 				switch item.Reason {
 				case "RemovingNode":
-					fmt.Printf("\nKubernetes API Server: Removing Node %s\n", item.InvolvedObject.Name)
+					infoLogger.Printf("\nKubernetes API Server: Removing Node %s\n", item.InvolvedObject.Name)
 					event := NewEvent("Delete", "Node", ResourceToJSON((item.InvolvedObject.Name)))
-					fmt.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(item.InvolvedObject.Name))
+					infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(item.InvolvedObject.Name))
 					// Send(client, topicID, event, metadata)
 					queue <- event
 				case "Starting":
-					fmt.Printf("\nKubernetes API Server: Starting Node %s\n", item.InvolvedObject.Name)
+					infoLogger.Printf("\nKubernetes API Server: Starting Node %s\n", item.InvolvedObject.Name)
 					node, err := k8sclient.CoreV1().Nodes().Get(context.TODO(), string(item.InvolvedObject.Name), metav1.GetOptions{})
 					if err != nil {
 						println(err.Error())
 						continue
 					}
 					event := NewEvent("Add", "Node", ResourceToJSON(*node))
-					fmt.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(item.InvolvedObject.Name))
+					infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(item.InvolvedObject.Name))
 					// Send(client, topicID, event, metadata)
 					queue <- event
 				}
