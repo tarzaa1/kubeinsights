@@ -35,8 +35,12 @@
     ```sh
     go run cmd/setup/kafka/createTopic.go
     ```
+4. To be able to get live metrics (cpu and memory usage) you will need to setup metrics server:
+    ```sh
+    kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+    ```
 
-4. Run application:
+5. Run application:
     ```sh
     go run cmd/main/main.go
     ```
