@@ -20,7 +20,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/rest"
-	"k8s.io/metrics/pkg/apis/metrics"
 )
 
 type Event struct {
@@ -78,26 +77,31 @@ func worker(client publisher.Client, logger *log.Logger, topicID string, events 
 }
 
 func metricsWorker(k8sRESTClient rest.Interface, loggers Loggers, events chan<- Event) {
-	nodeMetricsList := metrics.NodeMetricsList{}
+	// nodeMetricsList := metrics.NodeMetricsList{}
 	for {
-		data, err := k8sRESTClient.Get().AbsPath("apis/metrics.k8s.io/v1beta1/nodes").DoRaw(context.TODO())
+		metrics, err := k8sRESTClient.Get().AbsPath("apis/metrics.k8s.io/v1beta1/nodes").DoRaw(context.TODO())
 		if err != nil {
 			loggers.ErrorLogger.Println(err)
 			loggers.ErrorLogger.Println("Please setup metrics server... Trying again in 10 seconds")
 			time.Sleep(10 * time.Second)
 			continue
 		}
-		// fmt.Print(string(data))
-		err = json.Unmarshal(data, &nodeMetricsList)
-		if err != nil {
-			fmt.Println(err)
-		}
 
-		for _, nodeMetrics := range nodeMetricsList.Items {
-			event := NewEvent("Update", "Metrics", ResourceToJSON(nodeMetrics))
-			loggers.InfoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(nodeMetrics.Kind))
-			events <- event
-		}
+		event := NewEvent("Update", "Metrics", metrics)
+		loggers.InfoLogger.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
+		events <- event
+
+		// fmt.Print(string(data))
+		// err = json.Unmarshal(data, &nodeMetricsList)
+		// if err != nil {
+		// 	fmt.Println(err)
+		// }
+
+		// for _, nodeMetrics := range nodeMetricsList.Items {
+		// 	event := NewEvent("Update", "Metrics", ResourceToJSON(nodeMetrics))
+		// 	loggers.InfoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(nodeMetrics.Kind))
+		// 	events <- event
+		// }
 
 		time.Sleep(15 * time.Second)
 	}
