@@ -11,8 +11,8 @@ import (
 
 	// publisher "kubeinsights/pkg/hedera"
 
-	publisher "kubeinsights/pkg/kafka"
-	"kubeinsights/pkg/kubestate"
+	publisher "github.com/tarzaa1/kubeinsights/pkg/kafka"
+	"github.com/tarzaa1/kubeinsights/pkg/kubestate"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -95,12 +95,6 @@ func metricsWorker(k8sRESTClient rest.Interface, loggers Loggers, events chan<- 
 		// err = json.Unmarshal(data, &nodeMetricsList)
 		// if err != nil {
 		// 	fmt.Println(err)
-		// }
-
-		// for _, nodeMetrics := range nodeMetricsList.Items {
-		// 	event := NewEvent("Update", "Metrics", ResourceToJSON(nodeMetrics))
-		// 	loggers.InfoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(nodeMetrics.Kind))
-		// 	events <- event
 		// }
 
 		time.Sleep(15 * time.Second)
