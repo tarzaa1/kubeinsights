@@ -9,10 +9,8 @@ import (
 	"sync"
 	"time"
 
-	// publisher "kubeinsights/pkg/hedera"
-
-	publisher "github.com/tarzaa1/kubeinsights/pkg/kafka"
 	"github.com/tarzaa1/kubeinsights/pkg/kubestate"
+	"github.com/tarzaa1/kubeinsights/pkg/publisher"
 
 	"github.com/google/uuid"
 	"github.com/joho/godotenv"
@@ -64,14 +62,14 @@ func ResourceToJSON[T any](resource T) json.RawMessage {
 	return jsonBytes
 }
 
-func Send(client publisher.Client, topicID string, event Event) string {
-	return publisher.SubmitMessage(client, topicID, event.MarshalToJSON())
+func Send(p publisher.Publisher, topicID string, event Event) string {
+	return p.SubmitMessage(topicID, event.MarshalToJSON())
 }
 
-func worker(client publisher.Client, logger *log.Logger, topicID string, events <-chan Event, wg *sync.WaitGroup) {
+func worker(p publisher.Publisher, logger *log.Logger, topicID string, events <-chan Event, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for event := range events {
-		status := Send(client, topicID, event)
+		status := Send(p, topicID, event)
 		logger.Printf("%s %s", event.Id, status)
 	}
 }
@@ -121,15 +119,27 @@ func main() {
 		log.Fatalf("Error loading .env file")
 	}
 
-	topicID := os.Getenv("KAFKA_TOPIC")
-	kafka_url := os.Getenv("KAFKA_BROKER_URL")
-	client := publisher.Producer(kafka_url)
+	dest := os.Getenv("DATA_DEST")
 
-	// client, err := publisher.ClientFromFile("config.json")
+	var p publisher.Publisher
+	var topicID string
 
-	// topicID := "0.0.1003"
+	if dest == "kafka" {
+		topicID = os.Getenv("KAFKA_TOPIC")
+		kafka_url := os.Getenv("KAFKA_BROKER_URL")
+		p = publisher.NewKafkaPublisher(kafka_url)
+		p.NewTopic(topicID)
+	} else {
+		p = publisher.NewHederaPublisher("config.json")
+		topicID = "0.0.1003"
+	}
 
 	infoLogger.Printf("Publishing to topicID: %v\n", topicID)
+
+	queue := make(chan Event, 1000)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go worker(p, infoLogger, topicID, queue, &wg)
 
 	k8sclient := kubestate.K8sClientSet()
 
@@ -138,11 +148,6 @@ func main() {
 	restClient := k8sclient.RESTClient()
 
 	namespace := "default"
-
-	queue := make(chan Event, 1000)
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go worker(client, infoLogger, topicID, queue, &wg)
 
 	event := NewEvent("Add", "Cluster", nil)
 	infoLogger.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
