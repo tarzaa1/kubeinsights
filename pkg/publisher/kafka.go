@@ -10,9 +10,26 @@ import (
 )
 
 type KafkaPublisher struct {
-	Client      *kafka.Producer
 	AdminClient *kafka.AdminClient
+	Client      *kafka.Producer
 	Topics      map[string]bool
+}
+
+func NewKafkaPublisher(address string) *KafkaPublisher {
+
+	adminClient, err := kafka.NewAdminClient(&kafka.ConfigMap{"bootstrap.servers": address})
+	if err != nil {
+		log.Fatalf("Failed to create Admin client: %s", err)
+	}
+
+	producer, err := kafka.NewProducer(&kafka.ConfigMap{
+		"bootstrap.servers": address})
+
+	if err != nil {
+		log.Fatalf("Failed to create producer: %s", err)
+	}
+
+	return &KafkaPublisher{AdminClient: adminClient, Client: producer, Topics: make(map[string]bool)}
 }
 
 func (p KafkaPublisher) SubmitMessage(topicID string, message []byte) string {
@@ -67,7 +84,12 @@ func (p *KafkaPublisher) NewTopic(topicID string) {
 
 	for _, result := range results {
 		if result.Error.Code() != kafka.ErrNoError {
-			log.Fatalf("Failed to create topic %s: %v", result.Topic, result.Error)
+			if result.Error.Code() == kafka.ErrTopicAlreadyExists {
+				log.Println("Topic Already Exists..")
+				p.Topics[topicID] = true
+			} else {
+				log.Fatalf("Failed to create topic %s: %v", result.Topic, result.Error)
+			}
 		} else {
 			p.Topics[result.Topic] = true
 			fmt.Printf("Successfully created topic %s\n", result.Topic)
