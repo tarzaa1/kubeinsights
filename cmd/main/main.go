@@ -62,14 +62,14 @@ func ResourceToJSON[T any](resource T) json.RawMessage {
 	return jsonBytes
 }
 
-func Send(p publisher.Publisher, topicID string, event Event) string {
-	return p.SubmitMessage(topicID, event.MarshalToJSON())
+func Send(p publisher.Publisher, event Event) string {
+	return p.SubmitMessage(event.MarshalToJSON())
 }
 
-func worker(p publisher.Publisher, logger *log.Logger, topicID string, events <-chan Event, wg *sync.WaitGroup) {
+func worker(p publisher.Publisher, logger *log.Logger, events <-chan Event, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for event := range events {
-		status := Send(p, topicID, event)
+		status := Send(p, event)
 		logger.Printf("%s %s", event.Id, status)
 	}
 }
@@ -119,6 +119,14 @@ func main() {
 		log.Fatalf("Error loading .env file")
 	}
 
+	k8sclient := kubestate.K8sClientSet()
+
+	coreV1Client := k8sclient.CoreV1()
+	appsV1Client := k8sclient.AppsV1()
+	restClient := k8sclient.RESTClient()
+
+	namespace := "default"
+
 	dest := os.Getenv("DATA_DEST")
 
 	var p publisher.Publisher
@@ -127,11 +135,11 @@ func main() {
 	if dest == "kafka" {
 		topicID = os.Getenv("KAFKA_TOPIC")
 		kafka_url := os.Getenv("KAFKA_BROKER_URL")
-		p = publisher.NewKafkaPublisher(kafka_url)
-		p.NewTopic(topicID)
+		p = publisher.NewKafkaPublisher(kafka_url, topicID)
 	} else {
-		p = publisher.NewHederaPublisher("config.json")
 		topicID = "0.0.1003"
+		config := publisher.ReadHederaConfig("config.json")
+		p = publisher.NewHederaPublisher(config, topicID)
 	}
 
 	infoLogger.Printf("Publishing to topicID: %v\n", topicID)
@@ -139,15 +147,7 @@ func main() {
 	queue := make(chan Event, 1000)
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go worker(p, infoLogger, topicID, queue, &wg)
-
-	k8sclient := kubestate.K8sClientSet()
-
-	coreV1Client := k8sclient.CoreV1()
-	appsV1Client := k8sclient.AppsV1()
-	restClient := k8sclient.RESTClient()
-
-	namespace := "default"
+	go worker(p, infoLogger, queue, &wg)
 
 	event := NewEvent("Add", "Cluster", nil)
 	infoLogger.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
