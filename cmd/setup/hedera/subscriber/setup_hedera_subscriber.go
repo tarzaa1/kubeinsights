@@ -1,10 +1,10 @@
 package main
 
 import (
-	"fmt"
-	"kubeinsights/pkg/hedera"
 	"log"
 	"os"
+
+	"github.com/tarzaa1/kubeinsights/pkg/publisher"
 
 	"github.com/joho/godotenv"
 )
@@ -21,24 +21,16 @@ func main() {
 	operatorAccountId := os.Getenv("OPERATOR_ACCOUNT_ID")
 	operatorPrivateKey := os.Getenv("OPERATOR_PRIVATE_KEY")
 
-	client, err := hedera.CreateClient(networkAddress, networkAccountId, operatorAccountId, operatorPrivateKey, mirrorAddress)
+	client := publisher.CreateHederaClient(networkAddress, networkAccountId, operatorAccountId, operatorPrivateKey, mirrorAddress)
 
-	if err != nil {
-		panic(err.Error())
-	}
+	newAccountId, newPrivateKey := publisher.NewHederaAccount(client)
 
-	newAccountId, newPrivateKey, err := hedera.NewAccount(client)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	config := hedera.Config{}
+	config := publisher.HederaConfig{}
 	config.Network.Address = networkAddress
 	config.Network.AccountId = networkAccountId
 	config.Operator.AccountId = newAccountId.String()
 	config.Operator.PrivateKey = newPrivateKey.String()
 	config.MirrorNode = mirrorAddress
 
-	hedera.WriteConfig(config, "sub_config.json")
+	publisher.WriteHederaConfig(config, "sub_config.json")
 }
