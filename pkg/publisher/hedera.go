@@ -10,54 +10,57 @@ import (
 )
 
 type HederaPublisher struct {
-	Client *hedera.Client
-	Topics map[string]*hedera.TopicID
+	Client  *hedera.Client
+	TopicID *hedera.TopicID
 }
 
-func (p HederaPublisher) SubmitMessage(topicID string, message []byte) string {
-
-	if topic, exits := p.Topics[topicID]; exits {
-		submitMessage, err := hedera.NewTopicMessageSubmitTransaction().
-			SetMessage(message).
-			SetTopicID(*topic).
-			SetMaxChunks(40).
-			Execute(p.Client)
-		if err != nil {
-			panic(err.Error())
-		}
-
-		receipt, err := submitMessage.GetReceipt(p.Client)
-
-		if err != nil {
-			println(err.Error())
-			return ""
-		}
-
-		transactionStatus := receipt.Status
-		return transactionStatus.String()
-	} else {
-		return fmt.Sprintf("The topic %s does not exist", topicID)
+func NewHederaPublisher(config HederaConfig, topicID string) *HederaPublisher {
+	client := HederaClient(config)
+	hedera_topicID, err := hedera.TopicIDFromString(topicID)
+	if err != nil {
+		panic(err.Error())
 	}
+	return &HederaPublisher{Client: client, TopicID: &hedera_topicID}
 }
 
-func (p *HederaPublisher) NewTopic(topicID string) {
+func (p HederaPublisher) SubmitMessage(message []byte) string {
 
-	transactionResponse, err := hedera.NewTopicCreateTransaction().
-		SetTopicMemo(topicID).
+	submitMessage, err := hedera.NewTopicMessageSubmitTransaction().
+		SetMessage(message).
+		SetTopicID(*p.TopicID).
+		SetMaxChunks(40).
 		Execute(p.Client)
 	if err != nil {
 		panic(err.Error())
 	}
 
-	transactionReceipt, err := transactionResponse.GetReceipt(p.Client)
+	receipt, err := submitMessage.GetReceipt(p.Client)
+
+	if err != nil {
+		return err.Error()
+	}
+
+	transactionStatus := receipt.Status
+	return transactionStatus.String()
+}
+
+func NewHederaTopic(client *hedera.Client) {
+
+	transactionResponse, err := hedera.NewTopicCreateTransaction().
+		Execute(client)
 	if err != nil {
 		panic(err.Error())
 	}
 
-	p.Topics[topicID] = transactionReceipt.TopicID
+	transactionReceipt, err := transactionResponse.GetReceipt(client)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	fmt.Printf("New topicID: %v\n", transactionReceipt.TopicID)
 }
 
-func (p HederaPublisher) NewAccount() (hedera.AccountID, hedera.PrivateKey) {
+func NewHederaAccount(Client *hedera.Client) (hedera.AccountID, hedera.PrivateKey) {
 
 	privateKey, err := hedera.PrivateKeyGenerateEd25519()
 	if err != nil {
@@ -72,13 +75,13 @@ func (p HederaPublisher) NewAccount() (hedera.AccountID, hedera.PrivateKey) {
 	newAccount, err := hedera.NewAccountCreateTransaction().
 		SetKey(publicKey).
 		SetInitialBalance(hedera.NewHbar(1000)).
-		Execute(p.Client)
+		Execute(Client)
 
 	if err != nil {
 		panic(err.Error())
 	}
 
-	receipt, err := newAccount.GetReceipt(p.Client)
+	receipt, err := newAccount.GetReceipt(Client)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -89,7 +92,7 @@ func (p HederaPublisher) NewAccount() (hedera.AccountID, hedera.PrivateKey) {
 	return *newAccountId, privateKey
 }
 
-type Config struct {
+type HederaConfig struct {
 	Network struct {
 		AccountId string `json:"accountId"`
 		Address   string `json:"address"`
@@ -101,7 +104,7 @@ type Config struct {
 	MirrorNode string `json:"mirrorNetwork"`
 }
 
-func ReadConfig(filepath string) Config {
+func ReadHederaConfig(filepath string) HederaConfig {
 	jsonFile, err := os.Open(filepath)
 	if err != nil {
 		panic(err.Error())
@@ -113,8 +116,7 @@ func ReadConfig(filepath string) Config {
 		panic(err.Error())
 	}
 
-	var config Config
-
+	var config HederaConfig
 	err = json.Unmarshal(byteValue, &config)
 	if err != nil {
 		panic(err.Error())
@@ -123,7 +125,7 @@ func ReadConfig(filepath string) Config {
 	return config
 }
 
-func WriteConfig(config Config, filePath string) {
+func WriteHederaConfig(config HederaConfig, filePath string) {
 
 	jsonData, err := json.MarshalIndent(config, "", "    ")
 	if err != nil {
@@ -142,7 +144,7 @@ func WriteConfig(config Config, filePath string) {
 	}
 }
 
-func CreateClient(networkAddress string, networkAccountId string, operatorAccountId string, operatorPrivateKey string, mirrorAddress string) *hedera.Client {
+func CreateHederaClient(networkAddress string, networkAccountId string, operatorAccountId string, operatorPrivateKey string, mirrorAddress string) *hedera.Client {
 
 	node := make(map[string]hedera.AccountID, 1)
 	networkAccountID, err := hedera.AccountIDFromString(networkAccountId)
@@ -171,8 +173,7 @@ func CreateClient(networkAddress string, networkAccountId string, operatorAccoun
 	return client
 }
 
-func ClientFromFile(filePath string) *hedera.Client {
-	config := ReadConfig(filePath)
+func HederaClient(config HederaConfig) *hedera.Client {
 
 	networkAddress := config.Network.Address
 	networkAccountId := config.Network.AccountId
@@ -180,7 +181,7 @@ func ClientFromFile(filePath string) *hedera.Client {
 	operatorAccountId := config.Operator.AccountId
 	operatorPrivateKey := config.Operator.PrivateKey
 
-	client := CreateClient(networkAddress, networkAccountId, operatorAccountId, operatorPrivateKey, mirrorAddress)
+	client := CreateHederaClient(networkAddress, networkAccountId, operatorAccountId, operatorPrivateKey, mirrorAddress)
 
 	return client
 }
