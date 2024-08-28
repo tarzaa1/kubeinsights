@@ -124,6 +124,7 @@ func main() {
 	coreV1Client := k8sclient.CoreV1()
 	appsV1Client := k8sclient.AppsV1()
 	restClient := k8sclient.RESTClient()
+	networkClient := k8sclient.NetworkingV1()
 
 	namespace := "default"
 
@@ -228,6 +229,19 @@ func main() {
 		event := NewEvent("Add", "Service", ResourceToJSON(service))
 		infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(service.Name))
 		// Send(client, topicID, event, metadata)
+		queue <- event
+	}
+
+	ingresses, err := networkClient.Ingresses(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		panic(err.Error())
+	}
+
+	infoLogger.Printf("Kubernetes API Server: There are %d ingresses in the cluster\n", len(ingresses.Items))
+
+	for _, ingress := range ingresses.Items {
+		event := NewEvent("Add", "Ingress", ResourceToJSON(ingress))
+		infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(ingress.Name))
 		queue <- event
 	}
 
