@@ -13,7 +13,6 @@ import (
 	"github.com/tarzaa1/kubeinsights/pkg/publisher"
 
 	"github.com/google/uuid"
-	"github.com/joho/godotenv"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
@@ -114,10 +113,10 @@ func main() {
 		ErrorLogger: errorLogger,
 	}
 
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatalf("Error loading .env file")
-	}
+	// err := godotenv.Load()
+	// if err != nil {
+	// 	log.Fatalf("Error loading .env file")
+	// }
 
 	k8sclient := kubestate.K8sClientSet()
 
