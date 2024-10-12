@@ -2,13 +2,18 @@ version: '3.8'
 
 services:
   kubeinsights:
-    image: kubeinsights:1.0
+    image: tareqz/kubeinsights:1.1
     build: .
     volumes:
-      - ./:/kubeinsights
+      # - ./:/kubeinsights
       - $HOME/.kube/config:/root/.kube/config
-    command: ["tail", "-f", "/dev/null"]
-    
+    # command: ["tail", "-f", "/dev/null"]
+    environment:
+      - KAFKA_BROKER_URL=kafka:9092
+      - KAFKA_TOPIC=cluster1
+      - KAFKA_GROUP_ID=foo
+      - DATA_DEST=kafka
+      
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.4
     environment:
