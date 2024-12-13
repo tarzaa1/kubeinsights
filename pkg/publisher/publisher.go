@@ -1,5 +1,5 @@
 package publisher
 
 type Publisher interface {
-	SubmitMessage(message []byte) string
+	SubmitMessage(message []byte, topic string) string
 }
