@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/tarzaa1/kubeinsights/pkg/kubestate"
 	"github.com/tarzaa1/kubeinsights/pkg/publisher"
 
@@ -61,14 +62,14 @@ func ResourceToJSON[T any](resource T) json.RawMessage {
 	return jsonBytes
 }
 
-func Send(p publisher.Publisher, event Event) string {
-	return p.SubmitMessage(event.MarshalToJSON())
+func Send(p publisher.Publisher, event Event, topic string) string {
+	return p.SubmitMessage(event.MarshalToJSON(), topic)
 }
 
-func worker(p publisher.Publisher, logger *log.Logger, events <-chan Event, wg *sync.WaitGroup) {
+func worker(p publisher.Publisher, topic string, logger *log.Logger, events <-chan Event, wg *sync.WaitGroup) {
 	defer wg.Done()
 	for event := range events {
-		status := Send(p, event)
+		status := Send(p, event, topic)
 		logger.Printf("%s %s", event.Id, status)
 	}
 }
@@ -86,6 +87,15 @@ func metricsWorker(k8sRESTClient rest.Interface, loggers Loggers, events chan<- 
 
 		event := NewEvent("Update", "Metrics", metrics)
 		loggers.InfoLogger.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
+
+		// var prettyJSON bytes.Buffer
+		// err = json.Indent(&prettyJSON, metrics, "", "  ")
+		// if err != nil {
+		// 	fmt.Println("Error pretty-printing JSON:", err)
+		// 	return
+		// }
+		// fmt.Println(prettyJSON.String())
+
 		events <- event
 
 		// fmt.Print(string(data))
@@ -113,10 +123,10 @@ func main() {
 		ErrorLogger: errorLogger,
 	}
 
-	// err := godotenv.Load()
-	// if err != nil {
-	// 	log.Fatalf("Error loading .env file")
-	// }
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("Error loading .env file")
+	}
 
 	k8sclient := kubestate.K8sClientSet()
 
@@ -135,11 +145,12 @@ func main() {
 	if dest == "kafka" {
 		topicID = os.Getenv("KAFKA_TOPIC")
 		kafka_url := os.Getenv("KAFKA_BROKER_URL")
-		p = publisher.NewKafkaPublisher(kafka_url, topicID)
+		p = publisher.NewKafkaPublisher(kafka_url)
+		// fmt.Println(p.SubmitMessage([]byte(topicID), "my-topic"))
 	} else {
 		topicID = "0.0.1003"
 		config := publisher.ReadHederaConfig("config.json")
-		p = publisher.NewHederaPublisher(config, topicID)
+		p = publisher.NewHederaPublisher(config)
 	}
 
 	infoLogger.Printf("Publishing to topicID: %v\n", topicID)
@@ -147,7 +158,7 @@ func main() {
 	queue := make(chan Event, 1000)
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go worker(p, infoLogger, queue, &wg)
+	go worker(p, topicID, infoLogger, queue, &wg)
 
 	event := NewEvent("Add", "Cluster", nil)
 	infoLogger.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
