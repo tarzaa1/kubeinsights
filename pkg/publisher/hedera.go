@@ -10,24 +10,24 @@ import (
 )
 
 type HederaPublisher struct {
-	Client  *hedera.Client
-	TopicID *hedera.TopicID
+	Client *hedera.Client
 }
 
-func NewHederaPublisher(config HederaConfig, topicID string) *HederaPublisher {
+func NewHederaPublisher(config HederaConfig) *HederaPublisher {
 	client := HederaClient(config)
-	hedera_topicID, err := hedera.TopicIDFromString(topicID)
+	return &HederaPublisher{Client: client}
+}
+
+func (p HederaPublisher) SubmitMessage(message []byte, topic string) string {
+
+	hedera_topicID, err := hedera.TopicIDFromString(topic)
 	if err != nil {
 		panic(err.Error())
 	}
-	return &HederaPublisher{Client: client, TopicID: &hedera_topicID}
-}
-
-func (p HederaPublisher) SubmitMessage(message []byte) string {
 
 	submitMessage, err := hedera.NewTopicMessageSubmitTransaction().
 		SetMessage(message).
-		SetTopicID(*p.TopicID).
+		SetTopicID(hedera_topicID).
 		SetMaxChunks(40).
 		Execute(p.Client)
 	if err != nil {
