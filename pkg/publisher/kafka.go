@@ -10,15 +10,32 @@ import (
 )
 
 type KafkaPublisher struct {
-	Client  *kafka.Producer
-	TopicID string
+	Client      *kafka.Producer
+	AdminClient *kafka.AdminClient
 }
 
-func (p KafkaPublisher) SubmitMessage(message []byte) string {
+func NewKafkaPublisher(address string) *KafkaPublisher {
+
+	adminClient, err := kafka.NewAdminClient(&kafka.ConfigMap{"bootstrap.servers": address})
+	if err != nil {
+		log.Fatalf("Failed to create Admin client: %s", err)
+	}
+
+	producer, err := kafka.NewProducer(&kafka.ConfigMap{
+		"bootstrap.servers": address})
+
+	if err != nil {
+		log.Fatalf("Failed to create producer: %s", err)
+	}
+
+	return &KafkaPublisher{Client: producer, AdminClient: adminClient}
+}
+
+func (p KafkaPublisher) SubmitMessage(message []byte, topic string) string {
 
 	delivery_chan := make(chan kafka.Event, 10000)
 	err := p.Client.Produce(&kafka.Message{
-		TopicPartition: kafka.TopicPartition{Topic: &p.TopicID, Partition: kafka.PartitionAny},
+		TopicPartition: kafka.TopicPartition{Topic: &topic, Partition: kafka.PartitionAny},
 		Value:          message},
 		delivery_chan,
 	)
@@ -43,30 +60,7 @@ func (p KafkaPublisher) SubmitMessage(message []byte) string {
 	return status
 }
 
-func NewKafkaPublisher(address string, topicID string) *KafkaPublisher {
-
-	adminClient, err := kafka.NewAdminClient(&kafka.ConfigMap{"bootstrap.servers": address})
-	if err != nil {
-		log.Fatalf("Failed to create Admin client: %s", err)
-	}
-
-	if err := NewKafkaTopic(adminClient, topicID); err != nil {
-		log.Fatal(err.Error())
-	}
-
-	adminClient.Close()
-
-	producer, err := kafka.NewProducer(&kafka.ConfigMap{
-		"bootstrap.servers": address})
-
-	if err != nil {
-		log.Fatalf("Failed to create producer: %s", err)
-	}
-
-	return &KafkaPublisher{Client: producer, TopicID: topicID}
-}
-
-func NewKafkaTopic(adminClient *kafka.AdminClient, topicID string) error {
+func (p KafkaPublisher) NewKafkaTopic(topicID string) error {
 
 	topicSpecification := kafka.TopicSpecification{
 		Topic:             topicID,
@@ -77,7 +71,7 @@ func NewKafkaTopic(adminClient *kafka.AdminClient, topicID string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	results, err := adminClient.CreateTopics(ctx, []kafka.TopicSpecification{topicSpecification})
+	results, err := p.AdminClient.CreateTopics(ctx, []kafka.TopicSpecification{topicSpecification})
 	if err != nil {
 		return fmt.Errorf("failed to create topic: %s", err)
 	}
