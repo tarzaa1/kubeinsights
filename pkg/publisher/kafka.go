@@ -60,7 +60,7 @@ func (p KafkaPublisher) SubmitMessage(message []byte, topic string) string {
 	return status
 }
 
-func (p KafkaPublisher) NewKafkaTopic(topicID string) error {
+func (p KafkaPublisher) NewTopic(topicID string) (string, error) {
 
 	topicSpecification := kafka.TopicSpecification{
 		Topic:             topicID,
@@ -73,22 +73,22 @@ func (p KafkaPublisher) NewKafkaTopic(topicID string) error {
 
 	results, err := p.AdminClient.CreateTopics(ctx, []kafka.TopicSpecification{topicSpecification})
 	if err != nil {
-		return fmt.Errorf("failed to create topic: %s", err)
+		return "", fmt.Errorf("failed to create topic: %s", err)
 	}
 
 	for _, result := range results {
 		if result.Error.Code() != kafka.ErrNoError {
 			if result.Error.Code() == kafka.ErrTopicAlreadyExists {
 				log.Printf("topic `%s` already exists", topicID)
-				return nil
+				return topicID, nil
 			} else {
-				return fmt.Errorf("failed to create topic %s: %v", result.Topic, result.Error)
+				return "", fmt.Errorf("failed to create topic %s: %v", result.Topic, result.Error)
 			}
 		} else {
 			fmt.Printf("Successfully created topic %s\n", result.Topic)
-			return nil
+			return topicID, nil
 		}
 	}
 
-	return fmt.Errorf("failed to create Topic! Did not get back any results")
+	return "", fmt.Errorf("failed to create Topic! Did not get back any results")
 }
