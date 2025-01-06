@@ -44,20 +44,22 @@ func (p HederaPublisher) SubmitMessage(message []byte, topic string) string {
 	return transactionStatus.String()
 }
 
-func NewHederaTopic(client *hedera.Client) {
+func (p HederaPublisher) NewTopic(topicID string) (string, error) {
 
 	transactionResponse, err := hedera.NewTopicCreateTransaction().
-		Execute(client)
+		Execute(p.Client)
 	if err != nil {
-		panic(err.Error())
+		fmt.Printf("Failed to execute topic creation transaction: %v\n", err)
+		return "", err
 	}
 
-	transactionReceipt, err := transactionResponse.GetReceipt(client)
+	transactionReceipt, err := transactionResponse.GetReceipt(p.Client)
 	if err != nil {
-		panic(err.Error())
+		fmt.Printf("Failed to get receipt for the topic creation transaction: %v\n", err)
+		return "", err
 	}
 
-	fmt.Printf("New topicID: %v\n", transactionReceipt.TopicID)
+	return transactionReceipt.TopicID.String(), nil
 }
 
 func NewHederaAccount(Client *hedera.Client) (hedera.AccountID, hedera.PrivateKey) {
