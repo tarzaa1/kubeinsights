@@ -74,6 +74,16 @@ func worker(p publisher.Publisher, topic string, logger *log.Logger, events <-ch
 	}
 }
 
+func khworker(p1 publisher.Publisher, p1_topic string, p2 publisher.Publisher, p2_topic string, logger *log.Logger, events <-chan Event, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for event := range events {
+		status1 := Send(p1, event, p1_topic)
+		logger.Printf("%s %s", event.Id, status1)
+		status2 := Send(p2, event, p2_topic)
+		logger.Printf("%s %s", event.Id, status2)
+	}
+}
+
 func metricsWorker(k8sRESTClient rest.Interface, loggers Loggers, events chan<- Event) {
 	// nodeMetricsList := metrics.NodeMetricsList{}
 	for {
@@ -138,6 +148,9 @@ func main() {
 	namespace := "default"
 
 	dest := os.Getenv("DATA_DEST")
+	queue := make(chan Event, 1000)
+	var wg sync.WaitGroup
+	wg.Add(1)
 
 	var p publisher.Publisher
 	var topicID string
@@ -147,18 +160,36 @@ func main() {
 		kafka_url := os.Getenv("KAFKA_BROKER_URL")
 		p = publisher.NewKafkaPublisher(kafka_url)
 		// fmt.Println(p.SubmitMessage([]byte(topicID), "my-topic"))
-	} else {
+
+		infoLogger.Printf("Publishing to topicID: %v\n", topicID)
+		go worker(p, topicID, infoLogger, queue, &wg)
+
+	} else if dest == "hedera" {
 		topicID = "0.0.1003"
 		config := publisher.ReadHederaConfig("config.json")
 		p = publisher.NewHederaPublisher(config)
+
+		infoLogger.Printf("Publishing to topicID: %v\n", topicID)
+		go worker(p, topicID, infoLogger, queue, &wg)
+
+	} else {
+		hedera_topicID := "0.0.1003"
+		config := publisher.ReadHederaConfig("config.json")
+		p1 := publisher.NewHederaPublisher(config)
+		new_hedera_topicID, err := p1.NewTopic("memo")
+		if err != nil {
+			panic(err.Error())
+		}
+		fmt.Printf("New topicID: %s\n", new_hedera_topicID)
+		p1.SubmitMessage([]byte(new_hedera_topicID), hedera_topicID)
+
+		kafka_topicID := os.Getenv("KAFKA_TOPIC")
+		kafka_url := os.Getenv("KAFKA_BROKER_URL")
+		p2 := publisher.NewKafkaPublisher(kafka_url)
+
+		infoLogger.Printf("Publishing to Kafka topicID %q and Hedera topicID %q\n", kafka_topicID, new_hedera_topicID)
+		go khworker(p1, new_hedera_topicID, p2, kafka_topicID, infoLogger, queue, &wg)
 	}
-
-	infoLogger.Printf("Publishing to topicID: %v\n", topicID)
-
-	queue := make(chan Event, 1000)
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go worker(p, topicID, infoLogger, queue, &wg)
 
 	event := NewEvent("Add", "Cluster", nil)
 	infoLogger.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
