@@ -34,8 +34,4 @@ func main() {
 	config.MirrorNode = mirrorAddress
 
 	publisher.WriteHederaConfig(config, "config.json")
-
-	client = publisher.HederaClient(config)
-
-	publisher.NewHederaTopic(client)
 }
