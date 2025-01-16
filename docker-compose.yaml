@@ -2,17 +2,17 @@ version: '3.8'
 
 services:
   kubeinsights:
-    image: tareqz/kubeinsights:1.1
+    image: kubeinsights:1.0
     build: .
     volumes:
-      # - ./:/kubeinsights
+      - ./:/kubeinsights
       - $HOME/.kube/config:/root/.kube/config
-    # command: ["tail", "-f", "/dev/null"]
-    environment:
-      - KAFKA_BROKER_URL=kafka:9092
-      - KAFKA_TOPIC=cluster1
-      - KAFKA_GROUP_ID=foo
-      - DATA_DEST=kafka
+    command: ["tail", "-f", "/dev/null"]
+    # environment:
+    #   - KAFKA_BROKER_URL=kafka:9092
+    #   - KAFKA_TOPIC=cluster1
+    #   - KAFKA_GROUP_ID=foo
+    #   - DATA_DEST=kafka
       
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.4
@@ -36,3 +36,23 @@ services:
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      # KAFKA_AUTO_CREATE_TOPICS_ENABLE: false 
+    entrypoint:
+      - "sh"
+      - "-c"
+      - |
+        #!/bin/bash
+        (
+          echo "Waiting for Kafka to start..."
+          while ! nc -z localhost 29092; do
+            sleep 1
+          done
+          echo "Kafka is up!"
+          /bin/kafka-topics --create \
+              --bootstrap-server localhost:29092 \
+              --replication-factor 1 \
+              --partitions 3 \
+              --topic cluster1
+          echo "Topic 'cluster1' created successfully!"
+        ) &
+        exec /etc/confluent/docker/run
