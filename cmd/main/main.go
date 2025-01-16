@@ -98,21 +98,7 @@ func metricsWorker(k8sRESTClient rest.Interface, loggers Loggers, events chan<- 
 		event := NewEvent("Update", "Metrics", metrics)
 		loggers.InfoLogger.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
 
-		// var prettyJSON bytes.Buffer
-		// err = json.Indent(&prettyJSON, metrics, "", "  ")
-		// if err != nil {
-		// 	fmt.Println("Error pretty-printing JSON:", err)
-		// 	return
-		// }
-		// fmt.Println(prettyJSON.String())
-
 		events <- event
-
-		// fmt.Print(string(data))
-		// err = json.Unmarshal(data, &nodeMetricsList)
-		// if err != nil {
-		// 	fmt.Println(err)
-		// }
 
 		time.Sleep(15 * time.Second)
 	}
@@ -161,7 +147,7 @@ func main() {
 		p = publisher.NewKafkaPublisher(kafka_url)
 		// fmt.Println(p.SubmitMessage([]byte(topicID), "my-topic"))
 
-		infoLogger.Printf("Publishing to topicID: %v\n", topicID)
+		infoLogger.Printf("Publishing to Kafka topicID: %v\n", topicID)
 		go worker(p, topicID, infoLogger, queue, &wg)
 
 	} else if dest == "hedera" {
@@ -169,7 +155,7 @@ func main() {
 		config := publisher.ReadHederaConfig("config.json")
 		p = publisher.NewHederaPublisher(config)
 
-		infoLogger.Printf("Publishing to topicID: %v\n", topicID)
+		infoLogger.Printf("Publishing to Hedera topicID: %v\n", topicID)
 		go worker(p, topicID, infoLogger, queue, &wg)
 
 	} else {
@@ -181,7 +167,15 @@ func main() {
 			panic(err.Error())
 		}
 		fmt.Printf("New topicID: %s\n", new_hedera_topicID)
-		p1.SubmitMessage([]byte(new_hedera_topicID), hedera_topicID)
+		message := map[string]string{"topic": new_hedera_topicID, "cluster": os.Getenv("KAFKA_TOPIC")}
+		msg, err := json.Marshal(message)
+		if err != nil {
+			panic(err.Error())
+		}
+
+		p1.SubmitMessage(msg, hedera_topicID)
+
+		time.Sleep(10 * time.Second)
 
 		kafka_topicID := os.Getenv("KAFKA_TOPIC")
 		kafka_url := os.Getenv("KAFKA_BROKER_URL")
