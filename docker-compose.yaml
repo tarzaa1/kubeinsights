@@ -37,22 +37,22 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       # KAFKA_AUTO_CREATE_TOPICS_ENABLE: false 
-    entrypoint:
-      - "sh"
-      - "-c"
-      - |
-        #!/bin/bash
-        (
-          echo "Waiting for Kafka to start..."
-          while ! nc -z localhost 29092; do
-            sleep 1
-          done
-          echo "Kafka is up!"
-          /bin/kafka-topics --create \
-              --bootstrap-server localhost:29092 \
-              --replication-factor 1 \
-              --partitions 3 \
-              --topic cluster1
-          echo "Topic 'cluster1' created successfully!"
-        ) &
-        exec /etc/confluent/docker/run
+    # entrypoint:
+    #   - "sh"
+    #   - "-c"
+    #   - |
+    #     #!/bin/bash
+    #     (
+    #       echo "Waiting for Kafka to start..."
+    #       while ! nc -z localhost 29092; do
+    #         sleep 1
+    #       done
+    #       echo "Kafka is up!"
+    #       /bin/kafka-topics --create \
+    #           --bootstrap-server localhost:29092 \
+    #           --replication-factor 1 \
+    #           --partitions 3 \
+    #           --topic cluster1
+    #       echo "Topic 'cluster1' created successfully!"
+    #     ) &
+    #     exec /etc/confluent/docker/run
