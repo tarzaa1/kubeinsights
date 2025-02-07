@@ -17,7 +17,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/rest"
+	metrics "k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
 type Event struct {
@@ -84,10 +84,10 @@ func khworker(p1 publisher.Publisher, p1_topic string, p2 publisher.Publisher, p
 	}
 }
 
-func metricsWorker(k8sRESTClient rest.Interface, loggers Loggers, events chan<- Event) {
+func metricsWorker(metricsClient *metrics.Clientset, loggers Loggers, events chan<- Event) {
 	// nodeMetricsList := metrics.NodeMetricsList{}
 	for {
-		metrics, err := k8sRESTClient.Get().AbsPath("apis/metrics.k8s.io/v1beta1/nodes").DoRaw(context.TODO())
+		nodeMetrics, err := metricsClient.MetricsV1beta1().NodeMetricses().List(context.TODO(), metav1.ListOptions{})
 		if err != nil {
 			loggers.ErrorLogger.Println(err)
 			loggers.ErrorLogger.Println("Please setup metrics server... Trying again in 10 seconds")
@@ -95,10 +95,37 @@ func metricsWorker(k8sRESTClient rest.Interface, loggers Loggers, events chan<- 
 			continue
 		}
 
-		event := NewEvent("Update", "Metrics", metrics)
-		loggers.InfoLogger.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
+		nodeMetricsEvent := NewEvent("Update", "NodeMetrics", ResourceToJSON(nodeMetrics))
+		loggers.InfoLogger.Printf("%s Sending Event: %s %s\n", nodeMetricsEvent.Id, nodeMetricsEvent.Action, nodeMetricsEvent.Kind)
+		events <- nodeMetricsEvent
 
-		events <- event
+		// var prettyMetrics map[string]interface{}
+		// if err := json.Unmarshal(metrics, &prettyMetrics); err != nil {
+		// 	loggers.ErrorLogger.Println("Failed to parse metrics JSON:", err)
+		// }
+		nodeprettyJSON, err := json.MarshalIndent(nodeMetrics, "", "    ")
+		if err != nil {
+			loggers.ErrorLogger.Println("Failed to pretty print metrics JSON:", err)
+		}
+
+		fmt.Println(string(nodeprettyJSON))
+
+		podMetrics, err := metricsClient.MetricsV1beta1().PodMetricses("default").List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			log.Printf("Error fetching Pod metrics: %v\n", err)
+			return
+		}
+
+		podMetricsEvent := NewEvent("Update", "PodMetrics", ResourceToJSON(podMetrics))
+		loggers.InfoLogger.Printf("%s Sending Event: %s %s\n", podMetricsEvent.Id, podMetricsEvent.Action, podMetricsEvent.Kind)
+		events <- podMetricsEvent
+
+		podprettyJSON, err := json.MarshalIndent(podMetrics, "", "    ")
+		if err != nil {
+			loggers.ErrorLogger.Println("Failed to pretty print metrics JSON:", err)
+		}
+
+		fmt.Println(string(podprettyJSON))
 
 		time.Sleep(15 * time.Second)
 	}
@@ -124,12 +151,17 @@ func main() {
 		log.Fatalf("Error loading .env file")
 	}
 
-	k8sclient := kubestate.K8sClientSet()
+	config, clientset := kubestate.K8sClientSet()
 
-	coreV1Client := k8sclient.CoreV1()
-	appsV1Client := k8sclient.AppsV1()
-	restClient := k8sclient.RESTClient()
-	networkClient := k8sclient.NetworkingV1()
+	coreV1Client := clientset.CoreV1()
+	appsV1Client := clientset.AppsV1()
+	// restClient := clientset.RESTClient()
+	networkClient := clientset.NetworkingV1()
+
+	metricsClient, err := metrics.NewForConfig(config)
+	if err != nil {
+		panic(err)
+	}
 
 	namespace := "default"
 
@@ -280,9 +312,9 @@ func main() {
 		queue <- event
 	}
 
-	go metricsWorker(restClient, loggers, queue)
+	go metricsWorker(metricsClient, loggers, queue)
 
-	watcher, err := k8sclient.CoreV1().Events(namespace).Watch(context.TODO(), metav1.ListOptions{})
+	watcher, err := coreV1Client.Events(namespace).Watch(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
@@ -326,7 +358,7 @@ eventLoop:
 					trys := 0
 
 					for {
-						pod, err = k8sclient.CoreV1().Pods(namespace).Get(context.TODO(), string(item.InvolvedObject.Name), metav1.GetOptions{})
+						pod, err = coreV1Client.Pods(namespace).Get(context.TODO(), string(item.InvolvedObject.Name), metav1.GetOptions{})
 						if err != nil {
 							println(err.Error())
 							trys += 1
@@ -339,7 +371,7 @@ eventLoop:
 						}
 					}
 
-					node, err := k8sclient.CoreV1().Nodes().Get(context.TODO(), string(pod.Spec.NodeName), metav1.GetOptions{})
+					node, err := coreV1Client.Nodes().Get(context.TODO(), string(pod.Spec.NodeName), metav1.GetOptions{})
 					if err != nil {
 						println(err.Error())
 						continue
@@ -381,7 +413,7 @@ eventLoop:
 					queue <- event
 				case "Starting":
 					infoLogger.Printf("\nKubernetes API Server: Starting Node %s\n", item.InvolvedObject.Name)
-					node, err := k8sclient.CoreV1().Nodes().Get(context.TODO(), string(item.InvolvedObject.Name), metav1.GetOptions{})
+					node, err := coreV1Client.Nodes().Get(context.TODO(), string(item.InvolvedObject.Name), metav1.GetOptions{})
 					if err != nil {
 						println(err.Error())
 						continue
