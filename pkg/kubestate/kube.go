@@ -11,7 +11,7 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
-func K8sClientSet() *kubernetes.Clientset {
+func K8sClientSet() (*rest.Config, *kubernetes.Clientset) {
 	var config *rest.Config
 	var err error
 
@@ -40,5 +40,5 @@ func K8sClientSet() *kubernetes.Clientset {
 		panic(err.Error())
 	}
 
-	return clientset
+	return config, clientset
 }
