@@ -99,16 +99,12 @@ func metricsWorker(metricsClient *metrics.Clientset, loggers Loggers, events cha
 		loggers.InfoLogger.Printf("%s Sending Event: %s %s\n", nodeMetricsEvent.Id, nodeMetricsEvent.Action, nodeMetricsEvent.Kind)
 		events <- nodeMetricsEvent
 
-		// var prettyMetrics map[string]interface{}
-		// if err := json.Unmarshal(metrics, &prettyMetrics); err != nil {
-		// 	loggers.ErrorLogger.Println("Failed to parse metrics JSON:", err)
+		// nodeprettyJSON, err := json.MarshalIndent(nodeMetrics, "", "    ")
+		// if err != nil {
+		// 	loggers.ErrorLogger.Println("Failed to pretty print metrics JSON:", err)
 		// }
-		nodeprettyJSON, err := json.MarshalIndent(nodeMetrics, "", "    ")
-		if err != nil {
-			loggers.ErrorLogger.Println("Failed to pretty print metrics JSON:", err)
-		}
 
-		fmt.Println(string(nodeprettyJSON))
+		// fmt.Println(string(nodeprettyJSON))
 
 		podMetrics, err := metricsClient.MetricsV1beta1().PodMetricses("default").List(context.TODO(), metav1.ListOptions{})
 		if err != nil {
@@ -120,12 +116,12 @@ func metricsWorker(metricsClient *metrics.Clientset, loggers Loggers, events cha
 		loggers.InfoLogger.Printf("%s Sending Event: %s %s\n", podMetricsEvent.Id, podMetricsEvent.Action, podMetricsEvent.Kind)
 		events <- podMetricsEvent
 
-		podprettyJSON, err := json.MarshalIndent(podMetrics, "", "    ")
-		if err != nil {
-			loggers.ErrorLogger.Println("Failed to pretty print metrics JSON:", err)
-		}
+		// podprettyJSON, err := json.MarshalIndent(podMetrics, "", "    ")
+		// if err != nil {
+		// 	loggers.ErrorLogger.Println("Failed to pretty print metrics JSON:", err)
+		// }
 
-		fmt.Println(string(podprettyJSON))
+		// fmt.Println(string(podprettyJSON))
 
 		time.Sleep(15 * time.Second)
 	}
