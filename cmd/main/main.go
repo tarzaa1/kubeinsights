@@ -108,8 +108,9 @@ func metricsWorker(metricsClient *metrics.Clientset, loggers Loggers, events cha
 
 		podMetrics, err := metricsClient.MetricsV1beta1().PodMetricses("default").List(context.TODO(), metav1.ListOptions{})
 		if err != nil {
-			log.Printf("Error fetching Pod metrics: %v\n", err)
-			return
+			loggers.ErrorLogger.Println("Error fetching Pod metrics:", err)
+			time.Sleep(10 * time.Second)
+			continue
 		}
 
 		podMetricsEvent := NewEvent("Update", "PodMetrics", ResourceToJSON(podMetrics))
@@ -424,4 +425,6 @@ eventLoop:
 		case watch.Deleted:
 		}
 	}
+
+	loggers.InfoLogger.Println("Watcher closed, exiting main()")
 }
