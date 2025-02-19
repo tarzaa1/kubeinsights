@@ -311,120 +311,141 @@ func main() {
 
 	go metricsWorker(metricsClient, loggers, queue)
 
-	watcher, err := coreV1Client.Events(namespace).Watch(context.TODO(), metav1.ListOptions{})
+	var resourceVersion string
+
+	initialList, err := coreV1Client.Events(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		panic(err.Error())
+		loggers.ErrorLogger.Printf("Error listing events: %v\n", err)
+		time.Sleep(5 * time.Second)
+		return
 	}
+	resourceVersion = initialList.ResourceVersion
 
-	currentTime := time.Now()
+	// not processing the initial list as i already handled them earlier
 
-eventLoop:
-	for event := range watcher.ResultChan() {
-		item := event.Object.(*v1.Event)
-
-		if item.CreationTimestamp.Time.Before(currentTime) {
+	for {
+		watcher, err := coreV1Client.Events(namespace).Watch(context.TODO(), metav1.ListOptions{
+			ResourceVersion: resourceVersion,
+			Watch:           true,
+		})
+		if err != nil {
+			loggers.ErrorLogger.Printf("Error creating watcher: %v\n", err)
+			time.Sleep(5 * time.Second)
 			continue
 		}
 
-		switch event.Type {
-		case watch.Added:
-			if item.InvolvedObject.Kind == "Pod" {
-				switch item.Reason {
-				case "Killing":
-					infoLogger.Printf("\nKubernetes API Server: Deleted Pod %s\n", item.InvolvedObject.Name)
-					event := NewEvent("Delete", "Pod", ResourceToJSON(item.InvolvedObject.Name))
-					infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(item.InvolvedObject.Name))
-					// Send(client, topicID, event, metadata)
-					queue <- event
-					// println(string(ToJSON(event)))
-				case "Started":
-					time.Sleep(3 * time.Second)
-					infoLogger.Printf("\nKubernetes API Server: Started Pod %s\n", item.InvolvedObject.Name)
-					if item.InvolvedObject.Name == "done" {
-						event := NewEvent("Add", "Done", ResourceToJSON(""))
-						infoLogger.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
-						// Send(client, topicID, done, metadata)
+		ch := watcher.ResultChan()
+	watchLoop:
+		for event := range ch {
+			switch event.Type {
+			case watch.Added:
+				k8sEvent, ok := event.Object.(*v1.Event)
+				if !ok {
+					continue
+				}
+
+				resourceVersion = k8sEvent.ResourceVersion
+
+				if k8sEvent.InvolvedObject.Kind == "Pod" {
+					switch k8sEvent.Reason {
+					case "Killing":
+						infoLogger.Printf("\nKubernetes API Server: Deleted Pod %s\n", k8sEvent.InvolvedObject.Name)
+						event := NewEvent("Delete", "Pod", ResourceToJSON(k8sEvent.InvolvedObject.Name))
+						infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(k8sEvent.InvolvedObject.Name))
 						queue <- event
-						fmt.Println("Received 'Done' signal, closing worker chan")
-						close(queue)
-						wg.Wait()
-						break eventLoop
-					}
+					case "Started":
+						time.Sleep(3 * time.Second)
+						infoLogger.Printf("\nKubernetes API Server: Started Pod %s\n", k8sEvent.InvolvedObject.Name)
+						if k8sEvent.InvolvedObject.Name == "done" {
+							event := NewEvent("Add", "Done", ResourceToJSON(""))
+							infoLogger.Printf("%s Sending Event: %s %s\n", event.Id, event.Action, event.Kind)
+							queue <- event
+							fmt.Println("Received 'Done' signal, closing worker chan")
+							close(queue)
+							wg.Wait()
+							break watchLoop
+						}
 
-					var pod *v1.Pod
-					trys := 0
+						var pod *v1.Pod
+						trys := 0
 
-					for {
-						pod, err = coreV1Client.Pods(namespace).Get(context.TODO(), string(item.InvolvedObject.Name), metav1.GetOptions{})
-						if err != nil {
-							println(err.Error())
-							trys += 1
-							time.Sleep(1 * time.Second)
-							if trys == 5 {
+						for {
+							pod, err = coreV1Client.Pods(namespace).Get(context.TODO(), string(k8sEvent.InvolvedObject.Name), metav1.GetOptions{})
+							if err != nil {
+								println(err.Error())
+								trys += 1
+								time.Sleep(1 * time.Second)
+								if trys == 5 {
+									break
+								}
+							} else {
 								break
 							}
-						} else {
-							break
 						}
-					}
 
-					node, err := coreV1Client.Nodes().Get(context.TODO(), string(pod.Spec.NodeName), metav1.GetOptions{})
-					if err != nil {
-						println(err.Error())
-						continue
-					}
-					images := node.Status.Images
-					for _, image := range images {
-						for _, name := range image.Names {
-							if name == pod.Status.ContainerStatuses[0].ImageID {
-								newImage := Image{
-									NodeUID: string(node.GetUID()),
-									Data:    image,
+						node, err := coreV1Client.Nodes().Get(context.TODO(), string(pod.Spec.NodeName), metav1.GetOptions{})
+						if err != nil {
+							println(err.Error())
+							continue
+						}
+						images := node.Status.Images
+						for _, image := range images {
+							for _, name := range image.Names {
+								if name == pod.Status.ContainerStatuses[0].ImageID {
+									newImage := Image{
+										NodeUID: string(node.GetUID()),
+										Data:    image,
+									}
+									event := NewEvent("Add", "Image", ResourceToJSON(newImage))
+									infoLogger.Printf("%s Sending Event: %s %s %s on K8sNode %s\n", event.Id, event.Action, event.Kind, string(image.Names[len(image.Names)-1]), string(pod.Spec.NodeName))
+									queue <- event
 								}
-								event := NewEvent("Add", "Image", ResourceToJSON(newImage))
-								infoLogger.Printf("%s Sending Event: %s %s %s on K8sNode %s\n", event.Id, event.Action, event.Kind, string(image.Names[len(image.Names)-1]), string(pod.Spec.NodeName))
-								// Send(client, topicID, event, metadata)
-								queue <- event
-								// println(string(ToJSON(event)))
 							}
 						}
+
+						event := NewEvent("Add", "Pod", ResourceToJSON(*pod))
+						infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(k8sEvent.InvolvedObject.Name))
+						queue <- event
 					}
-
-					event := NewEvent("Add", "Pod", ResourceToJSON(*pod))
-					infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(item.InvolvedObject.Name))
-					// Send(client, topicID, event, metadata)
-					queue <- event
-					// println(string(ToJSON(event)))
-
-					// infoLogger.Printf(" name: %s, imageID %s", pod.Spec.NodeName, pod.Status.ContainerStatuses[0].ImageID)
 				}
-			}
 
-			if item.InvolvedObject.Kind == "Node" {
-				switch item.Reason {
-				case "RemovingNode":
-					infoLogger.Printf("\nKubernetes API Server: Removing Node %s\n", item.InvolvedObject.Name)
-					event := NewEvent("Delete", "Node", ResourceToJSON((item.InvolvedObject.Name)))
-					infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(item.InvolvedObject.Name))
-					// Send(client, topicID, event, metadata)
-					queue <- event
-				case "Starting":
-					infoLogger.Printf("\nKubernetes API Server: Starting Node %s\n", item.InvolvedObject.Name)
-					node, err := coreV1Client.Nodes().Get(context.TODO(), string(item.InvolvedObject.Name), metav1.GetOptions{})
-					if err != nil {
-						println(err.Error())
-						continue
+				if k8sEvent.InvolvedObject.Kind == "Node" {
+					switch k8sEvent.Reason {
+					case "RemovingNode":
+						infoLogger.Printf("\nKubernetes API Server: Removing Node %s\n", k8sEvent.InvolvedObject.Name)
+						event := NewEvent("Delete", "Node", ResourceToJSON((k8sEvent.InvolvedObject.Name)))
+						infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(k8sEvent.InvolvedObject.Name))
+						queue <- event
+					case "Starting":
+						infoLogger.Printf("\nKubernetes API Server: Starting Node %s\n", k8sEvent.InvolvedObject.Name)
+						node, err := coreV1Client.Nodes().Get(context.TODO(), string(k8sEvent.InvolvedObject.Name), metav1.GetOptions{})
+						if err != nil {
+							println(err.Error())
+							continue
+						}
+						event := NewEvent("Add", "Node", ResourceToJSON(*node))
+						infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(k8sEvent.InvolvedObject.Name))
+						// Send(client, topicID, event, metadata)
+						queue <- event
 					}
-					event := NewEvent("Add", "Node", ResourceToJSON(*node))
-					infoLogger.Printf("%s Sending Event: %s %s %s\n", event.Id, event.Action, event.Kind, string(item.InvolvedObject.Name))
-					// Send(client, topicID, event, metadata)
-					queue <- event
 				}
+
+			case watch.Modified:
+			case watch.Deleted:
+			case watch.Error:
+				statusErr, _ := event.Object.(*metav1.Status)
+				loggers.ErrorLogger.Printf("Watch error received: %+v\n", statusErr)
+				break watchLoop
 			}
-		case watch.Modified:
-		case watch.Deleted:
 		}
-	}
 
-	loggers.InfoLogger.Println("Watcher closed, exiting main()")
+		loggers.InfoLogger.Println("Watch channel closed (or broke out watch.Error), re-establishing...")
+		list, err := coreV1Client.Events(namespace).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			loggers.ErrorLogger.Printf("Error listing events after watch closed: %v\n", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+		resourceVersion = list.ResourceVersion
+	}
 }
