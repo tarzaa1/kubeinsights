@@ -84,7 +84,7 @@ func khworker(p1 publisher.Publisher, p1_topic string, p2 publisher.Publisher, p
 	}
 }
 
-func metricsWorker(metricsClient *metrics.Clientset, loggers Loggers, events chan<- Event) {
+func metricsWorker(metricsClient *metrics.Clientset, loggers Loggers, events chan<- Event, namespace string) {
 	// nodeMetricsList := metrics.NodeMetricsList{}
 	for {
 		nodeMetrics, err := metricsClient.MetricsV1beta1().NodeMetricses().List(context.TODO(), metav1.ListOptions{})
@@ -106,7 +106,7 @@ func metricsWorker(metricsClient *metrics.Clientset, loggers Loggers, events cha
 
 		// fmt.Println(string(nodeprettyJSON))
 
-		podMetrics, err := metricsClient.MetricsV1beta1().PodMetricses("default").List(context.TODO(), metav1.ListOptions{})
+		podMetrics, err := metricsClient.MetricsV1beta1().PodMetricses(namespace).List(context.TODO(), metav1.ListOptions{})
 		if err != nil {
 			loggers.ErrorLogger.Println("Error fetching Pod metrics:", err)
 			time.Sleep(10 * time.Second)
@@ -124,7 +124,7 @@ func metricsWorker(metricsClient *metrics.Clientset, loggers Loggers, events cha
 
 		// fmt.Println(string(podprettyJSON))
 
-		time.Sleep(15 * time.Second)
+		time.Sleep(2 * time.Second)
 	}
 }
 
@@ -160,7 +160,7 @@ func main() {
 		panic(err)
 	}
 
-	namespace := "default"
+	namespace := os.Getenv("NAMESPACE")
 
 	dest := os.Getenv("DATA_DEST")
 	queue := make(chan Event, 1000)
@@ -309,7 +309,7 @@ func main() {
 		queue <- event
 	}
 
-	go metricsWorker(metricsClient, loggers, queue)
+	go metricsWorker(metricsClient, loggers, queue, namespace)
 
 	var resourceVersion string
 
