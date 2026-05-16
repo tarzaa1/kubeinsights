@@ -36,9 +36,7 @@ func main() {
 	queue := make(chan event.Event, 1000)
 
 	// publisher worker — drains the queue and submits to the configured destination
-	var publisherWg sync.WaitGroup
-	publisherWg.Add(1)
-	setupPublisher(infoLog, errLog, queue, &publisherWg)
+	publisherWg := setupPublisher(infoLog, errLog, queue)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -57,12 +55,7 @@ func main() {
 		errLog.Fatalf("snapshot: %v", err)
 	}
 
-	var metricsWg sync.WaitGroup
-	metricsWg.Add(1)
-	go func() {
-		defer metricsWg.Done()
-		w.PollMetrics(ctx)
-	}()
+	metricsWg := startMetricsPolling(w, ctx)
 
 	w.Watch(ctx)   // blocks until "done" sentinel or context cancellation
 	cancel()       // stop PollMetrics
@@ -71,21 +64,24 @@ func main() {
 	publisherWg.Wait()
 }
 
-func setupPublisher(infoLog, errLog *log.Logger, queue chan event.Event, wg *sync.WaitGroup) {
+func setupPublisher(infoLog, errLog *log.Logger, queue chan event.Event) *sync.WaitGroup {
+	var wg sync.WaitGroup
+	wg.Add(1)
+
 	dest := os.Getenv("DATA_DEST")
 	switch dest {
 	case "kafka":
 		topic := os.Getenv("KAFKA_TOPIC")
 		p := publisher.NewKafkaPublisher(os.Getenv("KAFKA_BROKER_URL"))
 		infoLog.Printf("publishing to Kafka topic %q", topic)
-		go worker(p, topic, infoLog, queue, wg)
+		go worker(p, topic, infoLog, queue, &wg)
 
 	case "hedera":
 		topic := "0.0.1003"
 		cfg := publisher.ReadHederaConfig("config.json")
 		p := publisher.NewHederaPublisher(cfg)
 		infoLog.Printf("publishing to Hedera topic %q", topic)
-		go worker(p, topic, infoLog, queue, wg)
+		go worker(p, topic, infoLog, queue, &wg)
 
 	default:
 		hederaCfg := publisher.ReadHederaConfig("config.json")
@@ -109,6 +105,8 @@ func setupPublisher(infoLog, errLog *log.Logger, queue chan event.Event, wg *syn
 		kafkaTopic := os.Getenv("KAFKA_TOPIC")
 		p2 := publisher.NewKafkaPublisher(os.Getenv("KAFKA_BROKER_URL"))
 		infoLog.Printf("publishing to Kafka topic %q and Hedera topic %q", kafkaTopic, newTopic)
-		go dualPublisherWorker(p1, newTopic, p2, kafkaTopic, infoLog, queue, wg)
+		go dualPublisherWorker(p1, newTopic, p2, kafkaTopic, infoLog, queue, &wg)
 	}
+
+	return &wg
 }
